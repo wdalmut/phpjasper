@@ -4,8 +4,7 @@ namespace JasperPHP;
  * Class JasperPHP
  * @package JasperPHP
  */
-class JasperPHP
-{
+class JasperPHP {
 
     /**
      * @var string
@@ -38,7 +37,7 @@ class JasperPHP
     public function __construct()
     {
         $this->executable = 'jasperstarter';
-        $this->path_executable = __DIR__ . '/../bin/jasperstarter/bin';
+        $this->path_executable = realpath(__DIR__ . '/../bin/jasperstarter/bin');
         $this->windows = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN' ? true : false;
     }
 
@@ -54,8 +53,13 @@ class JasperPHP
             throw new \JasperPHP\Exception\InvalidInputFile();
         }
 
-        $this->command = $this->windows ? $this->executable : './' . $this->executable;
+        $this->command = $this->windows ? $this->executable : $this->path_executable . DIRECTORY_SEPARATOR . $this->executable;
         $this->command .= ' compile ';
+
+        $dirname = dirname($input_file);
+        chdir($dirname);
+        $input_file = basename($input_file);
+
         $this->command .= "\"$input_file\"";
 
         if ($output_file !== false) {
@@ -82,10 +86,14 @@ class JasperPHP
         }
         $this->validateFormat($options['format']);
 
-        $this->command = $this->windows ? $this->executable : './' . $this->executable;
+        $this->command = $this->windows ? $this->executable : $this->path_executable . DIRECTORY_SEPARATOR. $this->executable;
         if ($options['locale']) {
             $this->command .= " --locale {$options['locale']}";
         }
+
+        $dirname = dirname($input_file);
+        chdir($dirname);
+        $input_file = basename($input_file);
 
         $this->command .= ' process ';
         $this->command .= "\"$input_file\"";
@@ -189,16 +197,28 @@ class JasperPHP
         $this->validateExecute();
         $this->addUserToCommand($user);
 
-        $output = [];
         $return_var = 0;
 
-        chdir($this->path_executable);
-        exec($this->command, $output, $return_var);
+        $proc = proc_open($this->command,[
+            1 => ['pipe','w'],
+            2 => ['pipe','w'],
+        ],$pipes);
+
+        $stdout = stream_get_contents($pipes[1]);
+        $stderr = stream_get_contents($pipes[2]);
+
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        $return_var = proc_get_status($proc)['exitcode'];
+
+        proc_close($proc);
+
         if ($return_var !== 0) {
-            throw new \JasperPHP\Exception\ErrorCommandExecutable();
+            throw new \JasperPHP\Exception\ErrorCommandExecutable($stderr);
         }
 
-        return $output;
+        return explode("\n", $stdout);
     }
 
     /**
